@@ -16,15 +16,16 @@ namespace Dythervin.ObjectPool
 
         [SerializeField] protected int maxSize = DefaultMaxSize;
         [SerializeField] protected bool collectionCheckDefault = DefaultCollectionCheck;
-        protected Stack<T> Stack { get; private set; }
+        private Stack<T> _stack;
+        protected Stack<T> Stack => _stack;
 
         public event Action<T> OnCreated;
         public event Action<T> OnDestroy;
         public event Action<T> OnGet;
         public event Action<T> OnRelease;
-        public int CountActive => CountAll - CountInactive;
+        public int CountActive => CountAll - _stack.Count;
         public int CountAll { get; private set; }
-        public int CountInactive => Stack.Count;
+        public int CountInactive => _stack.Count;
 
         public int MaxSize
         {
@@ -45,25 +46,30 @@ namespace Dythervin.ObjectPool
         public virtual void Clear()
         {
             if (OnDestroy != null)
-                foreach (T obj in Stack)
+                foreach (T obj in _stack)
                     OnDestroy(obj);
 
-            Stack.Clear();
+            _stack.Clear();
             CountAll = 0;
         }
 
-        public void EnsureObjCount(int count)
+        public ObjectPoolBase<T> EnsureObjCount(int count)
         {
             if (count <= 0 || count > maxSize)
                 throw new ArgumentOutOfRangeException();
 
-            while (Stack.Count < count)
-                Release(GetNew());
+            while (_stack.Count < count)
+            {
+                T obj = GetNew();
+                Release(ref obj);
+            }
+
+            return this;
         }
 
         public virtual T Get()
         {
-            T obj = Stack.Count == 0 ? GetNew() : Stack.Pop();
+            T obj = _stack.Count == 0 ? GetNew() : _stack.Pop();
             OnGot(obj);
             return obj;
         }
@@ -77,8 +83,8 @@ namespace Dythervin.ObjectPool
 
         protected void SetStack(int capacity)
         {
-            Assert.IsNull(Stack);
-            Stack = new Stack<T>(capacity);
+            Assert.IsNull(_stack);
+            _stack = new Stack<T>(capacity);
         }
 
         protected ObjectPoolBase([DefaultValue(DefaultCollectionCheck)] bool collectionCheckDefault,
@@ -122,29 +128,25 @@ namespace Dythervin.ObjectPool
         protected abstract T CreateNew();
 
         // ReSharper disable once UnusedParameter.Global
-        public void Release(T element, bool collectionCheck)
+        public void Release(ref T element, bool collectionCheck)
         {
-#if UNITY_EDITOR
-            //Always check in editor
-            if (Stack.Count > 0 && Stack.Contains(element))
-#else
-            if (collectionCheck && Stack.Count > 0 && Stack.Contains(element))
-#endif
+            if (collectionCheck && _stack.Count > 0 && _stack.Contains(element))
                 throw new InvalidOperationException("Trying to release an object that has already been released to the pool.");
 
             OnReleaseInvoke(element);
 
-            if (CountInactive < maxSize)
-                Stack.Push(element);
+            if (_stack.Count < maxSize)
+                _stack.Push(element);
             else
                 OnDestroyInvoke(element);
 
             OnReleased(element);
+            element = null;
         }
 
-        public void Release(T element)
+        public void Release(ref T element)
         {
-            Release(element, collectionCheckDefault);
+            Release(ref element, collectionCheckDefault);
         }
 
         protected virtual void OnReleased(T element) { }

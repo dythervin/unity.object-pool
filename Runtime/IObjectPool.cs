@@ -22,6 +22,6 @@ namespace Dythervin.ObjectPool
     public interface IObjectPool<T> : IObjectPoolOut<T>
         where T : class
     {
-        void Release(T obj);
+        void Release(ref T obj);
     }
 }
